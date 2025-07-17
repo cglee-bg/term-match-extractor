@@ -28,7 +28,7 @@ export default function Home() {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<{ [key: string]: any }>(sheet, { header: 1 });
+      const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
       return rows as string[][];
     };
 
