@@ -13,8 +13,11 @@ export default function Home() {
   const [termbaseHasHeader, setTermbaseHasHeader] = useState(true);
   const [updateHasHeader, setUpdateHasHeader] = useState(true);
   const [matches, setMatches] = useState<{ line: string; terms: string[] }[]>([]);
-  const [uniqueTerms, setUniqueTerms] = useState<string[]>([]);
+  const [checkedTerms, setCheckedTerms] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [globalToggle, setGlobalToggle] = useState(true); // 전역/로컬 토글
+  const [termbaseFileName, setTermbaseFileName] = useState<string>("");
+  const [updateFileName, setUpdateFileName] = useState<string>("");
 
   const parseFile = async (file: File): Promise<string[][]> => {
     const ext = file.name.split(".").pop()?.toLowerCase();
@@ -43,8 +46,13 @@ export default function Home() {
 
   const handleFile = async (file: File, type: "termbase" | "update") => {
     const parsed = await parseFile(file);
-    if (type === "termbase") setTermbaseData(parsed);
-    else setUpdateData(parsed);
+    if (type === "termbase") {
+      setTermbaseFileName(file.name); // 파일명 저장
+      setTermbaseData(parsed);
+    } else {
+      setUpdateFileName(file.name); // 파일명 저장
+      setUpdateData(parsed);
+    }
   };
 
   const findMatches = () => {
@@ -55,16 +63,44 @@ export default function Home() {
 
     const lines = updateData.slice(updateHasHeader ? 1 : 0);
     const result: { line: string; terms: string[] }[] = [];
+    const initialCheckedTerms = new Set<string>();
 
     lines.forEach((row) => {
       const line = row[updateCol];
       if (!line) return;
       const matched = terms.filter((term) => line.includes(term));
-      if (matched.length > 0) result.push({ line, terms: matched });
+      if (matched.length > 0) {
+        matched.forEach((term) => initialCheckedTerms.add(term));
+        result.push({ line, terms: matched });
+      }
     });
 
     setMatches(result);
-    setUniqueTerms([...new Set(result.flatMap((r) => r.terms))]);
+    setCheckedTerms(initialCheckedTerms);
+  };
+
+  const toggleTerm = (term: string) => {
+    setCheckedTerms((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(term)) {
+        newSet.delete(term);
+      } else {
+        newSet.add(term);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAllTermsInSegment = (segmentTerms: string[]) => {
+    setCheckedTerms((prev) => {
+      const newSet = new Set(prev);
+      const allChecked = segmentTerms.every((term) => newSet.has(term));
+      segmentTerms.forEach((term) => {
+        if (allChecked) newSet.delete(term);
+        else newSet.add(term);
+      });
+      return newSet;
+    });
   };
 
   const copyToClipboard = (text: string) => {
@@ -113,6 +149,13 @@ export default function Home() {
       <div className="max-w-4xl mx-auto space-y-8">
         <h1 className="text-3xl font-bold">📄 Term Match Extractor</h1>
 
+        <div className="flex items-center space-x-2">
+          <input type="checkbox" checked={globalToggle} onChange={(e) => setGlobalToggle(e.target.checked)} />
+          <span className="text-sm text-gray-700">
+            체크 상태를 모든 줄에 적용 (전역 체크)
+          </span>
+        </div>
+
         <div className="space-y-4">
           <label className="block text-lg font-semibold">1️⃣ 텀베이스 파일 업로드</label>
           <input
@@ -127,6 +170,11 @@ export default function Home() {
           <label htmlFor="termbase-upload" className="cursor-pointer inline-block bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-2 rounded shadow">
             📁 텀베이스 파일 선택
           </label>
+          {termbaseFileName && (
+            <div className="mt-2 text-sm text-gray-600" title={`파일명: ${termbaseFileName}`}>
+              선택된 파일: <span className="font-semibold">{termbaseFileName}</span>
+            </div>
+          )}
           {renderColumnSelector(termbaseData, setTermbaseCol, termbaseHasHeader, setTermbaseHasHeader, "텀베이스")}
         </div>
 
@@ -144,6 +192,11 @@ export default function Home() {
           <label htmlFor="update-upload" className="cursor-pointer inline-block bg-green-600 hover:bg-green-500 text-white font-medium px-4 py-2 rounded shadow">
             📁 업데이트 파일 선택
           </label>
+          {updateFileName && (
+            <div className="mt-2 text-sm text-gray-600" title={`파일명: ${updateFileName}`}>
+              선택된 파일: <span className="font-semibold">{updateFileName}</span>
+            </div>
+          )}
           {renderColumnSelector(updateData, setUpdateCol, updateHasHeader, setUpdateHasHeader, "업데이트")}
         </div>
 
@@ -171,7 +224,21 @@ export default function Home() {
                     {matches.map((m, i) => (
                       <tr key={i} className="hover:bg-gray-50">
                         <td className="border px-2 py-1 text-center">{i + 1}</td>
-                        <td className="border px-2 py-1 text-blue-700 font-medium">{m.terms.join(", ")}</td>
+                        <td className="border px-2 py-1 text-blue-700 font-medium space-x-2">
+                          {m.terms.map((term, j) => (
+                            <label key={`${i}-${j}`} className="inline-flex items-center mr-2" title="이 용어를 선택하려면 클릭하세요.">
+                              <input
+                                type="checkbox"
+                                className="mr-1"
+                                checked={checkedTerms.has(term)}
+                                onChange={() => {
+                                  globalToggle ? toggleTerm(term) : toggleAllTermsInSegment([term]);
+                                }}
+                              />
+                              <span>{term}</span>
+                            </label>
+                          ))}
+                        </td>
                         <td className="border px-2 py-1 text-sm text-gray-800">{m.line}</td>
                       </tr>
                     ))}
@@ -189,15 +256,16 @@ export default function Home() {
               )}
               <button
                 className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
-                onClick={() => copyToClipboard(uniqueTerms.join("\n"))}
-                title="복사"
+                onClick={() => copyToClipboard(Array.from(checkedTerms).join("\n"))}
+                title="복사하려면 클릭하세요."
               >
                 <Copy size={18} />
               </button>
               <textarea
                 className="w-full h-32 p-3 bg-gray-100 text-gray-800 border border-gray-300 rounded"
-                value={uniqueTerms.join("\n")}
+                value={Array.from(checkedTerms).join("\n")}
                 readOnly
+                title="여기에 선택된 용어들이 표시됩니다."
               />
             </div>
           </>
